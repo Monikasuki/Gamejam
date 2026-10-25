@@ -1,0 +1,822 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>双界回廊 · AI 少女</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; background: #081016; }
+  body { display: grid; place-items: center; overflow: hidden; font-family: "Microsoft YaHei", system-ui, sans-serif; }
+  #wrap { position: relative; width: 100vw; height: 100vh; display: grid; place-items: center; }
+  canvas { display: block; width: min(100vw, 150vh); height: min(100vh, 66.6667vw); image-rendering: pixelated; image-rendering: crisp-edges; background: #0b141c; border: 1px solid #24414c; box-shadow: 0 0 34px rgba(74, 205, 222, .16); }
+  #fullscreen-btn { position: absolute; top: 14px; right: 14px; z-index: 2; padding: 7px 10px; border: 1px solid rgba(135, 237, 242, .55); border-radius: 5px; background: rgba(6, 22, 29, .78); color: #b9fbfa; font: 700 12px system-ui, sans-serif; cursor: pointer; }
+  #fullscreen-btn:hover { background: rgba(46, 113, 126, .8); }
+  #touch { position: absolute; inset: auto 0 10px; display: none; justify-content: space-between; padding: 0 14px; pointer-events: none; }
+  .touch-group { display: flex; gap: 8px; }
+  .touch-btn { width: 48px; height: 42px; border: 1px solid rgba(135, 237, 242, .42); border-radius: 8px; background: rgba(6, 22, 29, .78); color: #b9fbfa; font: 700 18px system-ui; pointer-events: auto; touch-action: none; }
+  .touch-btn:active { background: rgba(70, 190, 202, .45); }
+  @media (pointer: coarse) { #touch { display: flex; } }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game" width="960" height="640" aria-label="双界回廊游戏画面"></canvas>
+  <button id="fullscreen-btn" type="button">全屏 F</button>
+  <div id="touch" aria-hidden="true">
+    <div class="touch-group"><button class="touch-btn" data-key="ArrowLeft">◀</button><button class="touch-btn" data-key="ArrowRight">▶</button></div>
+    <div class="touch-group"><button class="touch-btn" data-key="KeyQ">Q</button><button class="touch-btn" data-key="Space">跳</button></div>
+  </div>
+</div>
+<script>
+'use strict';
+
+/* ================================================================
+   双界回廊 · 第一关可玩切片
+   逻辑分辨率 480×320；角色沿用前作像素素材，场景使用 CC0 像素素材与程序化绘制。
+   ================================================================ */
+const W = 480, H = 320;
+const RENDER_SCALE = 2;
+const canvas = document.querySelector('#game');
+const ctx = canvas.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+ctx.scale(RENDER_SCALE, RENDER_SCALE);
+
+const fullscreenButton = document.querySelector('#fullscreen-btn');
+function updateFullscreenLabel() {
+  fullscreenButton.textContent = document.fullscreenElement ? '退出全屏 F' : '全屏 F';
+}
+async function toggleFullscreen() {
+  if (document.fullscreenElement) await document.exitFullscreen();
+  else await document.documentElement.requestFullscreen();
+  updateFullscreenLabel();
+}
+fullscreenButton.addEventListener('click', () => toggleFullscreen().catch(() => say('浏览器未允许全屏')));
+document.addEventListener('fullscreenchange', updateFullscreenLabel);
+
+const playerSprites = [0, 1, 2].map(frame => {
+  const image = new Image();
+  image.src = [
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAYAAADDPmHLAAAMSklEQVR42u2dv6st1RXH/Vfs7C38B9IEgsVrrVKkSREQIa8UtJCE5FUiKSy0EGKK8J4+EDufQiBViuQlmB+ghRiIRKuIrzm5n2E+w/du577mnXvPmeG7YDPnzMyZe9nf715r7bXW3vPUU5VKpVKpVCqVSqVSqVQqlUqlUqlUKpVKpVKpVCo7kBdv/ejw+7ffOXz05muHe3dentrvXvnZpcY5rv/ypy8c2mMbFgG9c/ulA8DbAPjhb389NYnAMUnBNX4LCUqEjRMggRTsv9x/9/DfP7xz+PpP95f27Z/vXfqudigBNqbiHeWATHOkc/zHe785fPnJu0vju0R49OkHS/vunw+m8/yGZ0GC5597tkQ4R1lT44JN8zOA2gCco/dABjQAwEsCNQH38Vy0QUlwRvLM089MoAgiAAqqoz5HvqOc+xJkfgMB0hRoDpIwPAdNgIYpEc5A1QMCBGDUOnIlg2ACrA6fozxVfRKCZwi6JEgicD1JAAGLxInA16mjAQogqeaTEAKYdj9H+UgISSCJvMdnqmHqE5xIVO2SwHm7KpprqeoFmCPgC2KO8lEjpP1/9O+HS0sCNE5wQgIADMADgp68R9V9jt706tOxG+/xvkl7XADOdT9PbSYGf4vZBcRDC1QT3LDHn3ZeULTxftYpTALoJPI9tcAa+N/979vlN0mAJAEEqEN4AtsPwNpqwUxCjN8FFxBHB3EB3OnfDL6gj1NDG791algS3JBo81XPo+eeTp8j/JIKv2h5XhUv4KO6954xSJQkgwh1CG+QAI7+BCtVuwRYAEaVO6JDfXt9+jwSIJ7jPaOz6EwBM+CxCF2jGJcXFEeutnpx2ELd68WPBAAwnDiygrSv/vPNJRs/Ar1GAL7zHKODBp2K1DWBb4gXoABkcdQu2uqUbYUY6TA+/PjDCfjXf/XG4Yt/fb5q59Per5kBzksAp6OdGl5DuFc1SwOodN4khKQY5+3LvbPdZuT/7a+fTSP/kz/+fSLAVXZ+DBev+QGZKHJqWtSOKHSsBNB5y8SN4VnJkdM573XOD/iAfu/ug8NPfvzSdEwCXEUCzcDaeesGnKHwN4rakQM/pnQT1IzwaX+vGrn8lhGP2n/jzfcn4F/9xVvf0wBrozw9/jGJpOaxZsDag6J2RAF8o3yjTTbQo/29igCADNiofoCHBBz5zjWJ9biw8EiAkQSaAjRBUTsyAbT/OSIzpy8BxiSQaV5AZtTj7HGkROz2z+8sGkBz4tTvKgKM1zQrktLIYFE7YuRvzOc76vUJxvh/JoIkgODo+DHyIQImgfPa90vRwRUTMJqIzEDy9/QHcFybKj4SAQSXlhm8rOSZfIQLMLOyJ4tD1Ax8ZvRrEiCBDmamjdd8gSRH1glYMuZ0k+84rjqFRfEJHcCs0s0EjilZR7exAu9TLafpkASMUmYBEEENktHDrBvI33pek6EG0PmDiJ4zT1AUn2D006EWeZrtExiBz6AO99PpWSCSBMipG79FC6R9T1DVBJk2zuliXpcAjnpnBvUHnnD+b+FHxgLseDvZczh41gmoBdYIQNOkQAAihvgECbJ2XcIZf0jVn3UIWTBK8/lF8Qk1gF610cCs7UuwjRVYy7/4BXOF0BoBplrBWXNAAo4ZD8jy8QwzW1kkubw3nT/NUVE8Uh4Ax02gBZjGeYNAEOWHP7g1tSnoM987EoCRrK8wmZG7DxYCaBL0MUYCjHWB+iNc538BfDVXHcAjaoKcDaTaN/YO6I4+G+cAZS1AZNDG64CPNkBrmGPIIlLNwZgIyqqjLBTl77dI5MjiSNfhypp/vHkAx7P3SNN3WCPAZFIuQBd4gc6g0EiCMRiV6xH0HdQEHEuAI5sCQadzjb1DAEYwgBPdoxnvN5C0FrzJ7KJ5AkF3RpB2PmcL46qidAyTpJ0FXIMWsPomF4VAgIzxAz6evWZjrR4gbTwagGcn6JlIGkmQVcg5YxD85gSumQB2MKPW4g9B54gzx3mjg2txgIwnoAGsNrLc2yCQJBJsAZYEOTOp538DZkDVKvgSANAN70KEdOT07CWB0T+vuWzcaaNkyNIvK5JU78tUcv5N9xG4AcmNHrLej0YgaFL7F8RITz4XgWQUj/tNBuWuIBl+zvWGjnyvZVxCn6QEuCEzQEejti9V/K6Ug43rBXXyzAxmDiGXlKsFOJpU8txIGDWSJChCNzQdpMNV9Y8DPzN1gGl+IUezzxxVvXF9Pf40QZKg8/0blgwIQQJU+VKsESTQSUsCcDRqOKryrO/LbWW08wk+83wJVEROoAFy2xZIMK7+sZkb0AnUU8/6PUf/6ORxz7hxlLOP1v+dUEb7CwGw54CMNhi1APdk0Mbcgk2AE1jOZ3p3TPfW6TuTKaGN7wIieIIEaDldm+L/VALNJeGp2rXtkgPbnqRocGdDonPmlDGLQACfqCFh43G3kdwWbvxe2ZA4eq0LcB0goJMwys2echNJmyRqWHeDYjpWtS/4gI0qhxT4C7SsOmrP7QR8U8KCja03RZyrio0ZdJOHHYlpYQEHfB24jB5mBJGQcDd52IEw8gEf0DlOBR9zveBUVjbnCdZCyN0FdAdOH6OcegA1AKFiwYYUNotB9QMgSDXADggAuEzvVP2p7iGDZsHlYZaDWUjCtfbkRuf8LgC1FAwtwOhmpNMAnHOMdD6bDs7l4piQ9uZWp3xzgacevev/OGexiCbA6B9+gVrByuL26AYJYPWvcX5Lws35A7YFoxABjcA1CSEB6gNs2P4DIGocYAFU8B3hgqxj6IqgXBSi89ge3aCY5JkKQy+AJ/3LMWMCNP2CdBAlAb/n/vbmBs2A4DoLSA2gVhgJkESAOGgBtEh7dEOyLPGa1/hp0wGdayZ+XDfoiuCRABBDM1BfYCOSwZ1ps8eZAObzAdyMnk6fBFgzAzzDZWbdBn4DMqn52e6rxt39i+aqYhNCmIfHEUBnEA3SyOAGVD+gJpAGdQzzGvZ1jYCVxFcRwPMGjLi/PX3G6n9K7szAATwaIbWBZV/6BLSMDl5FAHcStbW3z0iWF0PO+/5lsgf1L7B69TQdQEa02mGNAEYTc9ZQEpyZmOhJb94lXpnv1w8A7ATUvECSx3M8l3tdLWw0sabgzFQ/AOUIXip87z64dE6QOZrtgyyWiUkETYJmQkJZUWQ8ob1/YnFXDwng1i7W9qdq1xmUEHr3jnIJ4OZQFo9mRJF7nEbqSxSFMyCAjp7q3ViAawXd9SOdPbOBFoRy3beI+/YQ08NqBmMCXmvd4InFzJ97/roRtLuDaM9V29p2j07tNBdmBtMXSELxXDWGOYaWiJ8BCVDFgGMzwOMeAdM2MazvHyqCco/gtP2es5bQdwloSnwVvWahKJxQTPta/ZN7/yfY6RA6ugVYLeDotkjEt4j4W82A+wCbaCoKJxQAzL3/zeCtqXKnggaJDPE6orNh4yWGTqIkcRmZNQVF4YSi2s89gQAGkGx67G4Zl5U/bim7tpxcklg9pKZxClnwzygYpD9glE/gzOQ5fXPu7wjXQVxbG5ABI5/b3t6AT5AkMFScK3vdCzDNgDbedwa6cUQ+rwTYoLgMzE0k+O7mEWgBzYGaIDeM6Bx/BwKIkzc/v18g3xiW0UOXi+VG0+29nRDAVPEU059nCpk8ynxBp3U7JEBWBQl+xgnGvH97bY8mYI4VGAdYWwdQAuyYBMz/kwCpAfQF8ANKgJ2KGsBy76wP0CHke3f/2qmoAQTa7wR8MhFkyrc9tjNxrYBAr5kB6wJKgJ06gub7JcC4Ksg9A4witud2Ar5N79/dQTJF7ExA8Lvx844IYMrXCl93AbW0y00jTPO6/3B7bweCR2+FkPWDjn5z/BkWprmJdHtvB2JtQMb/LRsbHUFNgUmj9t4OxCIQXyYByG4dN+4cZkq4q392pgFygYcAu8JnbT1ga/53JL4CxgIQizrdDjZrBbMauNHAnQR/AFinLos/8kVT+gd+dpFIX/y4YXEFT+4KaiDIVT25nDwXllrzz7E9ueHRr4efG0VICPcHHgmgdvCe9uRWbX8AbhlYEiBbTgGdAbjIpD254emfawad9kkKw8EZ/ctFJbnCqD25YR/A9wXkzh4Gf2yAbN1gFox04cfGxZXDuagj3x5iIMgqYJ1E1/vx21YG70ALmAnMVUNJiLw3ydLRX6lUKpVKpVKpVCqVSqVSqVQqlUqlUqlUKpWdyP8B3E3G9jKP5c0AAAAASUVORK5CYII=",
+    "data:image/png;base64,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",
+    "data:image/png;base64,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"
+  ][frame];
+  return image;
+});
+
+const CONFIG = {
+  gravity: 760,
+  runSpeed: 112,
+  jumpSpeed: 255,
+  doubleJumpSpeed: 230,
+  coyoteTime: .10,
+  jumpBuffer: .10,
+  switchWindup: .35,
+  switchCooldown: 3,
+  switchInvulnerable: 1,
+  playerW: 11,
+  playerH: 16,
+  respawnDelay: .55,
+  levelWidth: 2400
+};
+
+const COLORS = {
+  ink: '#081016',
+  panel: '#101f29',
+  panel2: '#172d38',
+  text: '#b9fbfa',
+  dim: '#6e9ca7',
+  cyan: '#78e2f4',
+  cyan2: '#35b9d0',
+  reverse: '#d89cff',
+  reverse2: '#8d5ec7',
+  normalPlatform: '#315968',
+  reversePlatform: '#654d91',
+  white: '#efffff',
+  danger: '#ff6e7d',
+  gold: '#ffd875'
+};
+
+const input = { down: new Set(), pressed: new Set() };
+addEventListener('keydown', event => {
+  const code = event.code;
+  if (!input.down.has(code)) input.pressed.add(code);
+  input.down.add(code);
+  if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'Space'].includes(code)) event.preventDefault();
+  if (code === 'KeyF' && !event.repeat) toggleFullscreen().catch(() => say('浏览器未允许全屏'));
+});
+addEventListener('keyup', event => input.down.delete(event.code));
+function isDown(...codes) { return codes.some(code => input.down.has(code)); }
+function wasPressed(...codes) { return codes.some(code => input.pressed.has(code)); }
+
+for (const button of document.querySelectorAll('.touch-btn')) {
+  const code = button.dataset.key;
+  const down = event => { event.preventDefault(); if (!input.down.has(code)) input.pressed.add(code); input.down.add(code); };
+  const up = event => { event.preventDefault(); input.down.delete(code); };
+  button.addEventListener('pointerdown', down);
+  button.addEventListener('pointerup', up);
+  button.addEventListener('pointercancel', up);
+  button.addEventListener('pointerleave', up);
+}
+
+const ASSET_DATA = {
+  ground: "data:image/png;base64," + "iVBORw0KGgoAAAANSUhEUgAAABIAAAASBAMAAACk4JNkAAAABGdBTUEAALGPC/xhBQAAABVQTFRFAAAA9KxmNuN3n1pSLrCCy4FeQ0pfqkr35gAAAAF0Uk5TAEDm2GYAAABHSURBVAjXY2BLg4AEhjQYYEhTggAUlgsE4GI5m4AQiGVsDEJAljEEAFmhEABkBYIZpiCxQFGoGIgVbBoKVYdgQWThroK7FADMyjHenukO3QAAAABJRU5ErkJggg==",
+  stone: "data:image/png;base64," + "iVBORw0KGgoAAAANSUhEUgAAABIAAAASAgMAAAAroGbEAAAABGdBTUEAALGPC/xhBQAAAAxQTFRFNFVR9Kxmn1pSy4Feb0Gn+gAAAC1JREFUCNdj+A8EHxhg5D84+98vsAiEBFJA8vcvJJU4yPh6MAkR+QsVPwAmGQB9LlWdqVy5YgAAAABJRU5ErkJggg==",
+  coin: "data:image/png;base64," + "iVBORw0KGgoAAAANSUhEUgAAABIAAAASBAMAAACk4JNkAAAABGdBTUEAALGPC/xhBQAAAA9QTFRFAAAAy4Fe/uSBbz5D9LQb3lYgBQAAAAF0Uk5TAEDm2GYAAAAuSURBVAjXY2A2hgADBmMYYDBWggAUlgsEAFmOIkDaUQSFhZAlnYXfPLir4C4FAOixIu9WFEm9AAAAAElFTkSuQmCC",
+  lever: "data:image/png;base64," + "iVBORw0KGgoAAAANSUhEUgAAABIAAAASBAMAAACk4JNkAAAABGdBTUEAALGPC/xhBQAAABhQTFRFAAAA+2M4lZqx9Kxm3OHny4Febz5DQ0pfDySysAAAAAF0Uk5TAEDm2GYAAABWSURBVAjXY2AgFpQXQBns5eUwoRKYYLmLOFSwvFAQKsheLugOEyxxgQs6KUEE09KUXNTS0hgY2NLSUsrd0tISGNiSjU3KnY3NwCwjF2UwKzUUBMKQWAAsUxq8tr/MCwAAAABJRU5ErkJggg=="
+};
+const assetImages = Object.fromEntries(Object.entries(ASSET_DATA).map(([name, source]) => {
+  const image = new Image();
+  image.src = source;
+  return [name, image];
+}));
+const level1 = {
+  width: 2400,
+  start: { x: 34, y: 236 },
+  totalCoins: 14,
+  normal: {
+    // 1. 桥块教学区：连续落脚点，先教会跑、跳、收集。
+    platforms: [
+      {x:0,y:272,w:208,h:48,kind:'ground'}, {x:232,y:248,w:64,h:24},
+      {x:320,y:272,w:128,h:48,kind:'ground'}, {x:472,y:240,w:56,h:32},
+      // 2. 地刺节奏区：地面被切成几段，缺口由跳跃通过。
+      {x:552,y:272,w:112,h:48,kind:'ground'}, {x:704,y:272,w:112,h:48,kind:'ground'},
+      {x:856,y:240,w:80,h:16}, {x:968,y:272,w:112,h:48,kind:'ground'},
+      // 3. 移动平台区。
+      {x:1104,y:272,w:144,h:48,kind:'ground'}, {x:1280,y:240,w:64,h:16},
+      // 4. 锁门解密区。
+      {x:1376,y:272,w:128,h:48,kind:'ground'}, {x:1536,y:240,w:96,h:16},
+      {x:1664,y:272,w:112,h:48,kind:'ground'},
+      // 5. 敏捷试炼与终点。
+      {x:1800,y:240,w:80,h:16}, {x:1904,y:272,w:128,h:48,kind:'ground'},
+      {x:2056,y:240,w:72,h:16}, {x:2152,y:272,w:248,h:48,kind:'ground'}
+    ],
+    movingPlatforms: [
+      {x:760,y:208,w:64,h:12,axis:'x',min:720,max:872,speed:46,dir:1,kind:'moving'},
+      {x:1000,y:184,w:72,h:12,axis:'y',min:168,max:236,speed:34,dir:1,kind:'moving'}
+    ],
+    spikes: [{x:528,y:260,w:24,h:12},{x:664,y:260,w:40,h:12},{x:816,y:260,w:40,h:12}],
+    coins: [{x:112,y:244},{x:260,y:220},{x:392,y:244},{x:584,y:244},{x:784,y:180},{x:1168,y:244},{x:1440,y:244}],
+    rockets: [
+      {x:1960,y:258,dir:-1,period:2.5,phase:0},
+      {x:2016,y:258,dir:-1,period:2.5,phase:1.1},
+      {x:2184,y:258,dir:-1,period:2.5,phase:.5}
+    ],
+    portals: [{id:'A',x:1180,y:272,target:'B'},{id:'B',x:2112,y:240,target:'A'}],
+    puzzleParts: [{id:'A',x:1416,y:248,plane:'normal',symbol:'月'},{id:'C',x:1576,y:216,plane:'normal',symbol:'眼'}],
+    lockedDoor: {x:1776,y:208,w:24,h:64},
+    exit: {x:2336,y:224,w:42,h:48}
+  },
+  reverse: {
+    platforms: [
+      {x:0,y:272,w:208,h:48,kind:'ground'}, {x:232,y:248,w:64,h:24},
+      {x:320,y:272,w:160,h:48,kind:'ground'}, {x:520,y:224,w:72,h:16},
+      {x:632,y:272,w:104,h:48,kind:'ground'}, {x:784,y:240,w:64,h:16},
+      {x:896,y:272,w:144,h:48,kind:'ground'}, {x:1080,y:208,w:72,h:16},
+      {x:1208,y:272,w:136,h:48,kind:'ground'}, {x:1400,y:224,w:72,h:16},
+      {x:1528,y:272,w:128,h:48,kind:'ground'}, {x:1696,y:208,w:72,h:16},
+      {x:1800,y:272,w:128,h:48,kind:'ground'}, {x:1960,y:240,w:72,h:16},
+      {x:2072,y:272,w:328,h:48,kind:'ground'}
+    ],
+    movingPlatforms: [
+      {x:720,y:184,w:64,h:12,axis:'x',min:680,max:832,speed:42,dir:-1,kind:'moving'},
+      {x:1040,y:160,w:72,h:12,axis:'y',min:156,max:224,speed:32,dir:-1,kind:'moving'}
+    ],
+    spikes: [{x:480,y:260,w:40,h:12},{x:736,y:260,w:48,h:12},{x:1344,y:260,w:56,h:12}],
+    coins: [{x:112,y:244},{x:360,y:244},{x:548,y:196},{x:816,y:212},{x:1260,y:244},{x:1440,y:180},{x:1620,y:244}],
+    rockets: [],
+    portals: [{id:'A',x:1180,y:208,target:'B'},{id:'B',x:2112,y:272,target:'A'}],
+    puzzleParts: [{id:'B',x:1256,y:248,plane:'reverse',symbol:'齿'},{id:'D',x:1616,y:248,plane:'reverse',symbol:'门'}],
+    lockedDoor: {x:1776,y:208,w:24,h:64},
+    enemies: [{x:1872,y:248,w:14,h:24,home:1872,dir:-1,alert:0,seen:0}],
+    exit: {x:2336,y:224,w:42,h:48}
+  }
+};
+const level2 = {
+  width: 3000,
+  start: { x: 34, y: 236 },
+  totalCoins: 16,
+  normal: {
+    platforms: [
+      {x:0,y:272,w:240,h:48,kind:'ground'}, {x:264,y:240,w:72,h:16}, {x:360,y:272,w:144,h:48,kind:'ground'},
+      {x:528,y:240,w:80,h:16}, {x:624,y:272,w:120,h:48,kind:'ground'}, {x:760,y:224,w:64,h:16},
+      {x:856,y:272,w:136,h:48,kind:'ground'}, {x:1024,y:240,w:80,h:16}, {x:1136,y:272,w:144,h:48,kind:'ground'},
+      {x:1320,y:240,w:96,h:16}, {x:1456,y:272,w:136,h:48,kind:'ground'}, {x:1616,y:224,w:80,h:16},
+      {x:1728,y:272,w:128,h:48,kind:'ground'}, {x:1888,y:240,w:96,h:16}, {x:2024,y:272,w:144,h:48,kind:'ground'},
+      {x:2200,y:224,w:96,h:16}, {x:2344,y:272,w:152,h:48,kind:'ground'}, {x:2528,y:208,w:96,h:16},
+      {x:2664,y:272,w:336,h:48,kind:'ground'}
+    ],
+    movingPlatforms: [
+      {x:680,y:192,w:72,h:12,axis:'y',min:160,max:232,speed:38,dir:1,kind:'moving'},
+      {x:1184,y:192,w:72,h:12,axis:'x',min:1120,max:1304,speed:48,dir:1,kind:'moving'},
+      {x:2280,y:176,w:72,h:12,axis:'y',min:144,max:224,speed:42,dir:-1,kind:'moving'}
+    ],
+    spikes: [{x:336,y:260,w:24,h:12},{x:504,y:260,w:24,h:12},{x:744,y:260,w:40,h:12},{x:992,y:260,w:32,h:12},{x:1280,y:260,w:40,h:12},{x:1856,y:260,w:32,h:12},{x:2496,y:260,w:32,h:12}],
+    coins: [{x:112,y:244},{x:296,y:212},{x:432,y:244},{x:568,y:212},{x:704,y:164},{x:920,y:244},{x:1064,y:212},{x:1200,y:244},{x:1368,y:212},{x:1520,y:244},{x:1660,y:196},{x:1792,y:244},{x:1936,y:212},{x:2120,y:244},{x:2248,y:196},{x:2720,y:244}],
+    rockets: [{x:1520,y:258,dir:-1,period:2.2,phase:.2},{x:2400,y:258,dir:-1,period:2.4,phase:1.2}],
+    portals: [{id:'C',x:1104,y:240,target:'D'},{id:'D',x:2160,y:224,target:'C'}],
+    puzzleParts: [{id:'A',x:1456,y:248,plane:'normal',symbol:'火'},{id:'C',x:2024,y:248,plane:'normal',symbol:'圣'}],
+    enemies: [{x:1760,y:248,w:14,h:24,home:1760,dir:-1,alert:0,seen:0}],
+    exit: {x:2928,y:224,w:42,h:48}
+  },
+  reverse: {
+    platforms: [
+      {x:0,y:272,w:208,h:48,kind:'ground'}, {x:232,y:232,w:80,h:16}, {x:344,y:272,w:128,h:48,kind:'ground'},
+      {x:512,y:208,w:80,h:16}, {x:624,y:272,w:112,h:48,kind:'ground'}, {x:768,y:240,w:72,h:16},
+      {x:872,y:272,w:128,h:48,kind:'ground'}, {x:1032,y:200,w:80,h:16}, {x:1152,y:272,w:128,h:48,kind:'ground'},
+      {x:1320,y:224,w:80,h:16}, {x:1440,y:272,w:128,h:48,kind:'ground'}, {x:1600,y:192,w:88,h:16},
+      {x:1728,y:272,w:112,h:48,kind:'ground'}, {x:1880,y:216,w:88,h:16}, {x:2000,y:272,w:144,h:48,kind:'ground'},
+      {x:2184,y:200,w:88,h:16}, {x:2312,y:272,w:144,h:48,kind:'ground'}, {x:2496,y:184,w:96,h:16},
+      {x:2640,y:272,w:360,h:48,kind:'ground'}
+    ],
+    movingPlatforms: [
+      {x:680,y:184,w:72,h:12,axis:'x',min:624,max:808,speed:42,dir:-1,kind:'moving'},
+      {x:1200,y:168,w:72,h:12,axis:'y',min:152,max:232,speed:36,dir:1,kind:'moving'},
+      {x:2250,y:160,w:72,h:12,axis:'x',min:2160,max:2320,speed:44,dir:1,kind:'moving'}
+    ],
+    spikes: [{x:472,y:260,w:40,h:12},{x:736,y:260,w:32,h:12},{x:1000,y:260,w:32,h:12},{x:1280,y:260,w:40,h:12},{x:1568,y:260,w:32,h:12},{x:1840,y:260,w:40,h:12},{x:2144,y:260,w:40,h:12}],
+    coins: [{x:104,y:244},{x:272,y:204},{x:408,y:244},{x:552,y:172},{x:704,y:244},{x:936,y:244},{x:1072,y:164},{x:1216,y:244},{x:1360,y:188},{x:1504,y:244},{x:1640,y:156},{x:1792,y:244},{x:1920,y:180},{x:2080,y:244},{x:2224,y:164},{x:2720,y:244}],
+    rockets: [],
+    portals: [{id:'C',x:1112,y:200,target:'D'},{id:'D',x:2264,y:200,target:'C'}],
+    puzzleParts: [{id:'B',x:1504,y:248,plane:'reverse',symbol:'雷'},{id:'D',x:2080,y:248,plane:'reverse',symbol:'暗'}],
+    enemies: [{x:1680,y:248,w:14,h:24,home:1680,dir:1,alert:0,seen:0},{x:2460,y:248,w:14,h:24,home:2460,dir:-1,alert:0,seen:0}],
+    exit: {x:2928,y:224,w:42,h:48}
+  }
+};
+const levels = [level1, level2];
+let level = level1;
+const game = {
+  mode: 'intro', levelIndex: 0, plane: 'normal', cameraX: 0, elapsed: 0, deaths: 0,
+  introTime: 0, introDuration: 3.2, introFade: 1.2,
+  coins: new Set(), particles: [], message: { text: '', time: 0 },
+  transition: { time: 0, target: null }, switchCooldown: 0, portalCooldown: 0,
+  invulnerable: 0, hurtTimer: 0, hp: 3, maxHp: 3, coyote: 0, jumpBuffer: 0,
+  dash: { time: 0, cooldown: 0, dir: 1 },
+  attack: { time: 0, cooldown: 0 },
+  puzzle: { active: false, progress: [], solved: false, failed: false },
+  skill: { agility: 0, active: 0 },
+  stats: { switched: 0, landed: 0, hurt: false, portalUsed: false, firstClear: false },
+  spawn: { ...level.start },
+  player: { x: level.start.x, y: level.start.y, vx: 0, vy: 0, w: CONFIG.playerW, h: CONFIG.playerH, grounded: false, jumps: 0, facing: 1 }
+};
+const PUZZLE_ORDER = ['A', 'B', 'C', 'D'];
+
+function resetGame() {
+  game.mode = 'play';
+  level = levels[game.levelIndex];
+  game.plane = 'normal';
+  game.cameraX = 0;
+  game.elapsed = 0;
+  game.deaths = 0;
+  game.coins.clear();
+  game.particles.length = 0;
+  game.switchCooldown = 0;
+  game.portalCooldown = 0;
+  game.invulnerable = 0;
+  game.hurtTimer = 0;
+  game.hp = game.maxHp;
+  game.coyote = 0;
+  game.jumpBuffer = 0;
+  game.dash = { time: 0, cooldown: 0, dir: 1 };
+  game.attack = { time: 0, cooldown: 0 };
+  game.puzzle = { active: false, progress: [], solved: false, failed: false };
+  game.skill = { agility: 0, active: 0 };
+  game.spawn = { ...level.start };
+  game.stats = { switched: 0, landed: 0, hurt: false, portalUsed: false, firstClear: false };
+  game.transition = { time: 0, target: null };
+  game.player = { x: level.start.x, y: level.start.y, vx: 0, vy: 0, w: CONFIG.playerW, h: CONFIG.playerH, grounded: false, jumps: 0, facing: 1 };
+  say('先熟悉移动与跳跃');
+}
+function say(text, time = 2.4) { game.message = { text, time }; }
+function currentWorld() { return level[game.plane]; }
+function otherWorld() { return level[game.plane === 'normal' ? 'reverse' : 'normal']; }
+function rectsOverlap(a, b) { return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
+function playerRect(x = game.player.x, y = game.player.y) { return { x, y, w: game.player.w, h: game.player.h }; }
+function solidAt(x, y, world = currentWorld()) {
+  return world.platforms.find(p => x < p.x + p.w && x + game.player.w > p.x && y < p.y + p.h && y + game.player.h > p.y);
+}
+function validAtTargetPlane() {
+  const hit = solidAt(game.player.x, game.player.y, otherWorld());
+  return !hit;
+}
+
+function requestSwitch() {
+  if (game.mode !== 'play' || game.transition.time > 0 || game.switchCooldown > 0) return;
+  game.transition = { time: CONFIG.switchWindup, target: game.plane === 'normal' ? 'reverse' : 'normal' };
+  say('位面切换中…', CONFIG.switchWindup + .15);
+  burst(game.player.x + game.player.w / 2, game.player.y + game.player.h / 2, game.plane === 'normal' ? COLORS.reverse : COLORS.cyan, 5);
+}
+function finishSwitch() {
+  if (!validAtTargetPlane()) {
+    game.transition = { time: 0, target: null };
+    say('目标位面的位置被占据');
+    burst(game.player.x + game.player.w / 2, game.player.y + game.player.h / 2, COLORS.danger, 8);
+    return;
+  }
+  game.plane = game.transition.target;
+  game.transition = { time: 0, target: null };
+  game.switchCooldown = CONFIG.switchCooldown;
+  game.invulnerable = CONFIG.switchInvulnerable;
+  game.player.jumps = 0;
+  game.stats.switched++;
+  say(game.plane === 'normal' ? '回到常态世界' : '进入反面世界');
+  burst(game.player.x + game.player.w / 2, game.player.y + game.player.h / 2, game.plane === 'normal' ? COLORS.cyan : COLORS.reverse, 16);
+}
+
+function update(dt) {
+  if (game.mode === 'intro') {
+    game.introTime += dt;
+    if (game.introTime >= game.introDuration + game.introFade) {
+      game.mode = 'play';
+      say('先熟悉移动与跳跃');
+    }
+    return;
+  }
+  if (game.mode === 'title') { if (wasPressed('Enter', 'Space')) resetGame(); return; }
+  if (game.mode === 'clear') { if (wasPressed('Enter', 'Space', 'KeyR')) resetGame(); return; }
+  game.elapsed += dt;
+  if (wasPressed('Escape')) { game.mode = game.mode === 'paused' ? 'play' : 'paused'; say(game.mode === 'paused' ? '已暂停 · Esc 继续' : '继续'); return; }
+  if (game.mode === 'paused') return;
+  if (wasPressed('KeyR')) { resetGame(); return; }
+  if (wasPressed('KeyQ')) requestSwitch();
+  game.switchCooldown = Math.max(0, game.switchCooldown - dt);
+  game.portalCooldown = Math.max(0, game.portalCooldown - dt);
+  game.invulnerable = Math.max(0, game.invulnerable - dt);
+  game.hurtTimer = Math.max(0, game.hurtTimer - dt);
+  game.dash.cooldown = Math.max(0, game.dash.cooldown - dt);
+  game.attack.cooldown = Math.max(0, game.attack.cooldown - dt);
+  game.skill.active = Math.max(0, game.skill.active - dt);
+  game.message.time = Math.max(0, game.message.time - dt);
+  if (game.transition.time > 0) { game.transition.time -= dt; if (game.transition.time <= 0) finishSwitch(); }
+  updatePlayer(dt);
+  updateWorldSystems(dt);
+  updateCoins();
+  updateCamera(dt);
+  updateParticles(dt);
+  if (currentWorld().exit && rectsOverlap(playerRect(), currentWorld().exit)) {
+    if (!game.puzzle.solved) say('出口封闭 · 先完成四组件解密', .8);
+    else completeLevel();
+  }
+}
+
+function updatePlayer(dt) {
+  const p = game.player;
+  const wasGrounded = p.grounded;
+  const left = isDown('ArrowLeft', 'KeyA');
+  const right = isDown('ArrowRight', 'KeyD');
+  const jump = wasPressed('Space', 'ArrowUp', 'KeyW');
+  const jumpHeld = isDown('Space', 'ArrowUp', 'KeyW');
+  const axis = (right ? 1 : 0) - (left ? 1 : 0);
+  if (wasPressed('ShiftLeft', 'ShiftRight')) startDash(axis || p.facing);
+  if (wasPressed('KeyJ')) startAttack();
+  if (wasPressed('KeyE')) interact();
+  if (wasPressed('KeyK', 'Digit1')) useSkill();
+  if (game.dash.time > 0) {
+    game.dash.time = Math.max(0, game.dash.time - dt);
+    p.vx = game.dash.dir * 430;
+  } else {
+    const speed = game.skill.active > 0 ? CONFIG.runSpeed * 2 : CONFIG.runSpeed;
+    if (axis) { p.vx += axis * 850 * dt; p.facing = axis; }
+    else p.vx *= Math.pow(.0008, dt);
+    p.vx = Math.max(-speed, Math.min(speed, p.vx));
+  }
+  if (jump) game.jumpBuffer = CONFIG.jumpBuffer;
+  else game.jumpBuffer = Math.max(0, game.jumpBuffer - dt);
+  if (p.grounded) game.coyote = CONFIG.coyoteTime;
+  else game.coyote = Math.max(0, game.coyote - dt);
+  if (game.jumpBuffer > 0 && (p.grounded || game.coyote > 0)) {
+    p.vy = -CONFIG.jumpSpeed; p.grounded = false; p.jumps = 1; game.jumpBuffer = 0; game.coyote = 0;
+    burst(p.x + p.w / 2, p.y + p.h, COLORS.cyan, 4);
+  } else if (jump && !p.grounded && p.jumps < 2) {
+    p.vy = -CONFIG.doubleJumpSpeed; p.jumps = 2; burst(p.x + p.w / 2, p.y + p.h / 2, COLORS.reverse, 7); say('二段跳');
+  }
+  if (!jumpHeld && p.vy < -70) p.vy += CONFIG.gravity * 1.05 * dt;
+  p.vy += CONFIG.gravity * dt;
+  moveHorizontal(dt); moveVertical(dt, wasGrounded);
+  if (p.y > H + 80 || p.x < -80) respawn('掉出安全区域');
+}
+function startDash(dir) {
+  if (game.dash.cooldown > 0 || game.dash.time > 0) return;
+  game.dash = { time: .22, cooldown: 1, dir: dir || 1 }; burst(game.player.x, game.player.y + 8, COLORS.cyan, 7); say('冲刺');
+}
+function startAttack() {
+  if (game.attack.cooldown > 0) return;
+  game.attack = { time: .24, cooldown: .42 }; burst(game.player.x + game.player.facing * 12, game.player.y + 8, COLORS.gold, 5); say('攻击占位 · 第一关敌人不可击杀', 1.2);
+}
+function useSkill() {
+  if (game.skill.agility <= 0 || game.skill.active > 0) return;
+  game.skill.agility--; game.skill.active = 10; burst(game.player.x + 5, game.player.y + 8, COLORS.gold, 18); say('敏捷因子：速度提升 10 秒');
+}
+function interact() {
+  const world = currentWorld();
+  const part = world.puzzleParts?.find(item => Math.abs(item.x - game.player.x) < 28);
+  if (part) activatePuzzle(part);
+  const portal = world.portals?.find(item => Math.abs(item.x - game.player.x) < 30);
+  if (portal && game.portalCooldown <= 0) usePortal(portal);
+}
+function moveHorizontal(dt) {
+  const p = game.player;
+  p.x += p.vx * dt;
+  for (const platform of allSolids()) {
+    if (!rectsOverlap(playerRect(), platform)) continue;
+    if (p.vx > 0) p.x = platform.x - p.w;
+    if (p.vx < 0) p.x = platform.x + platform.w;
+    p.vx = 0;
+  }
+  p.x = Math.max(0, Math.min(level.width - p.w, p.x));
+}
+function allSolids() {
+  const world = currentWorld();
+  return [...world.platforms, ...(world.movingPlatforms || [])];
+}
+function moveVertical(dt, wasGrounded) {
+  const p = game.player;
+  p.grounded = false;
+  const oldBottom = p.y + p.h;
+  p.y += p.vy * dt;
+  for (const platform of allSolids()) {
+    if (!rectsOverlap(playerRect(), platform)) continue;
+    if (p.vy >= 0 && oldBottom <= platform.y + 2) {
+      p.y = platform.y - p.h;
+      p.vy = 0;
+      p.grounded = true;
+      p.jumps = 0;
+      if (!wasGrounded) game.stats.landed++;
+    } else if (p.vy < 0 && p.y >= platform.y + platform.h - 2) {
+      p.y = platform.y + platform.h;
+      p.vy = 0;
+    }
+  }
+  for (const spike of currentWorld().spikes || []) {
+    if (rectsOverlap(playerRect(), spike)) hurt('触碰地刺');
+  }
+}
+function updateCoins() {
+  for (let i = 0; i < currentWorld().coins.length; i++) {
+    const coin = currentWorld().coins[i];
+    const key = `${game.plane}:${i}`;
+    if (!game.coins.has(key) && rectsOverlap(playerRect(), { x: coin.x - 5, y: coin.y - 5, w: 10, h: 10 })) {
+      game.coins.add(key); burst(coin.x, coin.y, COLORS.gold, 9); say('获得记忆碎片');
+    }
+  }
+}
+function updateWorldSystems(dt) {
+  updateMovingPlatforms(dt);
+  updateRockets(dt);
+  updateEnemy(dt);
+  if (game.puzzle.active && game.puzzle.solved) game.puzzle.active = false;
+}
+function updateMovingPlatforms(dt) {
+  for (const platform of currentWorld().movingPlatforms || []) {
+    const previous = platform[platform.axis];
+    platform[platform.axis] += platform.dir * platform.speed * dt;
+    if (platform[platform.axis] <= platform.min || platform[platform.axis] >= platform.max) {
+      platform[platform.axis] = Math.max(platform.min, Math.min(platform.max, platform[platform.axis]));
+      platform.dir *= -1;
+    }
+    const delta = platform[platform.axis] - previous;
+    if (game.player.grounded && rectsOverlap(playerRect(), platform)) {
+      if (platform.axis === 'x') game.player.x += delta;
+      else game.player.y += delta;
+    }
+  }
+}
+function updateRockets(dt) {
+  for (const rocket of currentWorld().rockets || []) {
+    rocket.phase = (rocket.phase + dt) % rocket.period;
+    const warning = rocket.phase > rocket.period - .7;
+    if (warning && Math.abs(game.player.x - rocket.x) < 45 && game.player.y > 220) say('火箭预警 · 切换或等待', .2);
+    if (rocket.phase < .12 && Math.abs(game.player.x - rocket.x) < 35 && game.player.y > 235) hurt('间隔火箭');
+    if (warning) rocket.warning = .7; else rocket.warning = 0;
+  }
+}
+function updateEnemy(dt) {
+  const enemy = (currentWorld().enemies || [])[0];
+  if (!enemy) return;
+  enemy.x += enemy.dir * 22 * dt;
+  if (Math.abs(enemy.x - enemy.home) > 80) enemy.dir *= -1;
+  const dx = game.player.x - enemy.x;
+  const canSee = game.plane === 'reverse' && Math.abs(dx) < 220 && Math.sign(dx) === enemy.dir && Math.abs(game.player.y - enemy.y) < 48;
+  if (canSee) { enemy.alert = 1; enemy.seen = 2; }
+  else if (enemy.seen > 0) enemy.seen = Math.max(0, enemy.seen - dt);
+  if (enemy.seen > 0) { enemy.x += Math.sign(dx) * 42 * dt; if (Math.abs(dx) < 14) respawn('追踪者捕获'); }
+}
+function usePortal(portal) {
+  let targetPlane = null;
+  let target = null;
+  for (const plane of ['normal', 'reverse']) {
+    const found = level[plane].portals?.find(item => item.id === portal.target);
+    if (found) { targetPlane = plane; target = found; break; }
+  }
+  if (!target) { say('传送门目标占位'); return; }
+  game.player.x = target.x; game.player.y = target.y - game.player.h; game.portalCooldown = 5; game.stats.portalUsed = true;
+  game.player.vx = 0; game.player.vy = 0; game.player.jumps = 0; burst(target.x, target.y, COLORS.cyan, 16); say('传送完成 · 位面不变');
+}
+function activatePuzzle(part) {
+  game.puzzle.active = true;
+  const expected = PUZZLE_ORDER[game.puzzle.progress.length];
+  if (part.id !== expected) { game.puzzle.progress = []; game.puzzle.failed = true; say('顺序错误 · 组件已重置'); burst(part.x, part.y, COLORS.danger, 8); return; }
+  if (!game.puzzle.progress.includes(part.id)) game.puzzle.progress.push(part.id);
+  game.puzzle.failed = false; say(`组件 ${part.id} 已激活 · ${game.puzzle.progress.length}/4`); burst(part.x, part.y, COLORS.cyan, 8);
+  if (game.puzzle.progress.length === PUZZLE_ORDER.length) { game.puzzle.solved = true; game.skill.agility = 1; say('解密完成 · 获得敏捷因子'); burst(part.x, part.y, COLORS.gold, 24); }
+}
+function hurt(reason) {
+  if (game.invulnerable > 0 || game.hurtTimer > 0 || game.puzzle.active) return;
+  game.hp--; game.stats.hurt = true; game.hurtTimer = .9; game.invulnerable = .9; game.player.vx = -game.player.facing * 70; say(`${reason} · 生命 ${game.hp}/${game.maxHp}`); burst(game.player.x + 5, game.player.y + 8, COLORS.danger, 12);
+  if (game.hp <= 0) respawn('生命耗尽');
+}
+function respawn(reason) {
+  if (game.mode !== 'play') return;
+  game.deaths++;
+  game.coins.clear();
+  game.puzzle = { active: false, progress: [], solved: false, failed: false };
+  game.skill = { agility: 0, active: 0 };
+  game.hp = game.maxHp;
+  game.player.x = game.spawn.x;
+  game.player.y = game.spawn.y;
+  game.player.vx = 0;
+  game.player.vy = 0;
+  game.player.grounded = false;
+  game.plane = 'normal';
+  game.switchCooldown = 0;
+  game.transition = { time: 0, target: null };
+  say(`${reason} · 回到区域入口`);
+  burst(game.player.x + 5, game.player.y + 8, COLORS.danger, 13);
+}
+function completeLevel() {
+  game.stats.firstClear = true;
+  if (game.levelIndex < levels.length - 1) {
+    game.levelIndex++;
+    level = levels[game.levelIndex];
+    game.mode = 'title';
+    game.player = { x: level.start.x, y: level.start.y, vx: 0, vy: 0, w: CONFIG.playerW, h: CONFIG.playerH, grounded: false, jumps: 0, facing: 1 };
+    game.cameraX = 0;
+    say(`第${game.levelIndex + 1}关：复苏之径`);
+    return;
+  }
+  game.mode = 'clear';
+  say('第二关完成');
+  burst(game.player.x + 5, game.player.y + 8, COLORS.gold, 22);
+}
+function updateCamera(dt) {
+  const target = Math.max(0, Math.min(level.width - W, game.player.x - 150));
+  game.cameraX += (target - game.cameraX) * Math.min(1, dt * 7);
+}
+function burst(x, y, color, count) {
+  for (let i = 0; i < count; i++) game.particles.push({ x, y, vx: (Math.random() - .5) * 80, vy: (Math.random() - .5) * 80, life: .25 + Math.random() * .4, max: .65, color, size: Math.random() < .7 ? 2 : 3 });
+}
+function updateParticles(dt) {
+  for (const part of game.particles) { part.life -= dt; part.x += part.vx * dt; part.y += part.vy * dt; part.vy += 80 * dt; }
+  game.particles = game.particles.filter(part => part.life > 0);
+}
+
+const introImage = new Image();
+introImage.src = '开始界面.png';
+function render() {
+  ctx.clearRect(0, 0, W, H);
+  if (game.mode === 'intro') { drawIntro(); return; }
+  drawBackground();
+  if (game.mode === 'title') { drawTitle(); return; }
+  ctx.save();
+  ctx.translate(-Math.floor(game.cameraX), 0);
+  drawWorld();
+  drawPlayer();
+  drawParticles();
+  ctx.restore();
+  drawHud();
+  if (game.mode === 'clear') drawClear();
+}
+function drawIntro() {
+  ctx.fillStyle = '#05070c'; ctx.fillRect(0, 0, W, H);
+  if (!introImage.complete || introImage.naturalWidth <= 0) return;
+  const scale = Math.max(W / introImage.naturalWidth, H / introImage.naturalHeight);
+  const drawW = introImage.naturalWidth * scale;
+  const drawH = introImage.naturalHeight * scale;
+  ctx.drawImage(introImage, (W - drawW) / 2, (H - drawH) / 2, drawW, drawH);
+  if (game.introTime > game.introDuration) {
+    const fade = Math.min(1, (game.introTime - game.introDuration) / game.introFade);
+    ctx.fillStyle = '#05070c'; ctx.globalAlpha = fade; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
+  }
+}
+function drawBackground() {
+  const reverse = game.plane === 'reverse';
+  ctx.fillStyle = reverse ? '#170f25' : '#09151d';
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = reverse ? 'rgba(137, 86, 190, .11)' : 'rgba(65, 205, 225, .08)';
+  for (let x = -((game.cameraX * .15) % 48); x < W; x += 48) ctx.fillRect(x, 42, 1, 210);
+  for (let y = 44; y < 280; y += 32) ctx.fillRect(0, y, W, 1);
+  ctx.fillStyle = reverse ? 'rgba(210, 152, 255, .10)' : 'rgba(120, 226, 244, .08)';
+  ctx.beginPath(); ctx.arc(390, 68, 45, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = reverse ? COLORS.reverse : COLORS.cyan;
+  ctx.globalAlpha = .55;
+  ctx.fillRect(382, 60, 16, 16);
+  ctx.globalAlpha = 1;
+}
+function drawWorld() {
+  const world = currentWorld();
+  for (const platform of world.platforms) drawPlatform(platform, game.plane);
+  drawExit(world.exit);
+  drawObjects(world);
+  for (let i = 0; i < world.coins.length; i++) {
+    const coin = world.coins[i];
+    if (!game.coins.has(`${game.plane}:${i}`)) drawCoin(coin.x, coin.y);
+  }
+  drawSectionMarker(30, 'A  出生教学'); drawSectionMarker(440, 'B  位面跳跃');
+  drawSectionMarker(900, 'C  陷阱与传送门'); drawSectionMarker(1230, 'D  追踪区');
+  drawSectionMarker(1740, 'E  四组件解密'); drawSectionMarker(2200, 'F  敏捷试炼');
+}
+function drawObjects(world) {
+  for (const platform of world.movingPlatforms || []) drawPlatform(platform, game.plane, true);
+  for (const spike of world.spikes || []) drawSpikes(spike);
+  drawLockedDoor(world.lockedDoor);
+  for (const rocket of world.rockets || []) {
+    const warning = rocket.phase > rocket.period - .7;
+    if (warning) { ctx.strokeStyle = 'rgba(255,110,125,.7)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(rocket.x, rocket.y); ctx.lineTo(rocket.x - 38 * rocket.dir, rocket.y); ctx.stroke(); }
+    ctx.fillStyle = COLORS.danger; ctx.fillRect(rocket.x - 4, rocket.y - 3, 8, 6); ctx.fillStyle = '#ffccb0'; ctx.fillRect(rocket.x - 2, rocket.y - 1, 4, 2);
+  }
+  for (const portal of world.portals || []) drawPortal(portal);
+  for (const part of world.puzzleParts || []) drawPuzzlePart(part);
+  for (const enemy of world.enemies || []) drawEnemy(enemy);
+}
+function drawPortal(portal) {
+  const accent = game.plane === 'reverse' ? COLORS.reverse : COLORS.cyan;
+  ctx.globalAlpha = .13 + Math.sin(game.elapsed * 5) * .04; ctx.fillStyle = accent; ctx.fillRect(portal.x - 13, portal.y - 30, 26, 34); ctx.globalAlpha = 1;
+  ctx.strokeStyle = accent; ctx.lineWidth = 2; ctx.strokeRect(portal.x - 10, portal.y - 26, 20, 28);
+  ctx.fillStyle = accent; ctx.fillRect(portal.x - 7, portal.y - 22, 2, 20); ctx.fillRect(portal.x + 5, portal.y - 22, 2, 20);
+  ctx.fillStyle = COLORS.text; ctx.font = '7px monospace'; ctx.fillText(portal.id, portal.x - 2, portal.y - 31); if (Math.abs(game.player.x - portal.x) < 30) ctx.fillText('E 传送', portal.x - 16, portal.y - 38);
+}
+function drawPuzzlePart(part) {
+  const solved = game.puzzle.progress.includes(part.id);
+  const accent = solved ? COLORS.gold : part.plane === 'reverse' ? COLORS.reverse : COLORS.cyan;
+  ctx.globalAlpha = .16; ctx.fillStyle = accent; ctx.fillRect(part.x - 12, part.y - 22, 24, 24); ctx.globalAlpha = 1;
+  ctx.fillStyle = accent; ctx.fillRect(part.x - 9, part.y - 19, 18, 18); ctx.fillStyle = COLORS.ink; ctx.fillRect(part.x - 6, part.y - 16, 12, 12);
+  ctx.fillStyle = accent; ctx.font = 'bold 10px monospace'; ctx.fillText(part.symbol, part.x - 5, part.y - 6);
+  ctx.fillStyle = COLORS.dim; ctx.font = '7px monospace'; ctx.fillText(`${part.id} · E`, part.x - 10, part.y - 25);
+}
+function drawEnemy(enemy) {
+  ctx.fillStyle = enemy.seen > 0 ? COLORS.danger : '#3d263e'; ctx.fillRect(enemy.x, enemy.y, enemy.w, enemy.h); ctx.fillStyle = enemy.seen > 0 ? '#ff9b9b' : COLORS.reverse; ctx.fillRect(enemy.x + 3, enemy.y + 4, 3, 3);
+  if (enemy.seen > 0) { ctx.fillStyle = COLORS.danger; ctx.globalAlpha = .2; ctx.beginPath(); ctx.arc(enemy.x + 7, enemy.y + 8, 19, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1; ctx.fillStyle = COLORS.danger; ctx.font = '8px monospace'; ctx.fillText('追踪中', enemy.x - 8, enemy.y - 6); }
+}
+function drawExit(exit) {
+  if (!exit) return;
+  ctx.strokeStyle = game.puzzle.solved ? COLORS.gold : COLORS.dim; ctx.lineWidth = 2; ctx.strokeRect(exit.x, exit.y, exit.w, exit.h); ctx.fillStyle = game.puzzle.solved ? 'rgba(255,216,117,.18)' : 'rgba(110,156,167,.12)'; ctx.fillRect(exit.x + 3, exit.y + 3, exit.w - 6, exit.h - 3); ctx.fillStyle = COLORS.text; ctx.font = '7px monospace'; ctx.fillText(game.puzzle.solved ? '出口' : '封锁', exit.x + 9, exit.y - 7);
+}
+function drawWorldLabel(x, y, text) {
+  ctx.fillStyle = COLORS.dim;
+  ctx.font = '9px monospace';
+  ctx.fillText(text, x, y);
+}
+function drawSectionMarker(x, label) {
+  if (x < game.cameraX - 40 || x > game.cameraX + W + 40) return;
+  ctx.fillStyle = game.plane === 'reverse' ? 'rgba(216, 156, 255, .55)' : 'rgba(120, 226, 244, .55)';
+  ctx.font = '7px monospace'; ctx.fillText(label, x, 30);
+  ctx.fillRect(x, 34, 1, 8);
+}
+function drawSpikes(spike) {
+  ctx.fillStyle = COLORS.danger;
+  const count = Math.max(1, Math.floor(spike.w / 8));
+  for (let i = 0; i < count; i++) {
+    const x = spike.x + i * 8;
+    ctx.beginPath(); ctx.moveTo(x, spike.y + spike.h); ctx.lineTo(x + 4, spike.y); ctx.lineTo(x + 8, spike.y + spike.h); ctx.fill();
+  }
+}
+function drawLockedDoor(door) {
+  if (!door) return;
+  const unlocked = game.puzzle.solved;
+  ctx.fillStyle = unlocked ? 'rgba(255,216,117,.2)' : 'rgba(255,166,48,.22)';
+  ctx.fillRect(door.x, door.y, door.w, door.h);
+  ctx.strokeStyle = unlocked ? COLORS.gold : '#ffad38'; ctx.lineWidth = 2; ctx.strokeRect(door.x + 1, door.y + 1, door.w - 2, door.h - 2);
+  ctx.fillStyle = unlocked ? COLORS.gold : '#ffad38'; ctx.fillRect(door.x + 8, door.y + 28, 8, 10);
+  ctx.fillStyle = COLORS.ink; ctx.fillRect(door.x + 10, door.y + 31, 4, 7);
+  ctx.fillStyle = COLORS.text; ctx.font = '7px monospace'; ctx.fillText(unlocked ? 'OPEN' : '锁门', door.x - 2, door.y - 7);
+}
+function drawPlatform(p, plane, moving = false) {
+  const color = plane === 'reverse' ? COLORS.reversePlatform : COLORS.normalPlatform;
+  ctx.fillStyle = moving ? '#59636b' : p.kind === 'ground' ? '#213c48' : color;
+  ctx.fillRect(p.x, p.y, p.w, p.h);
+  ctx.fillStyle = plane === 'reverse' ? COLORS.reverse : COLORS.cyan;
+  ctx.fillRect(p.x, p.y, p.w, 2);
+  ctx.globalAlpha = .28; ctx.fillRect(p.x + 4, p.y + 5, Math.max(0, p.w - 8), 1); ctx.globalAlpha = 1;
+  const tile = plane === 'reverse' ? assetImages.stone : assetImages.ground;
+  if (tile.complete && tile.naturalWidth > 0) {
+    ctx.globalAlpha = .82;
+    for (let x = p.x; x < p.x + p.w; x += 18) ctx.drawImage(tile, x, p.y + 2, Math.min(18, p.x + p.w - x), Math.min(18, p.h - 2));
+    ctx.globalAlpha = 1;
+  }
+  ctx.fillStyle = plane === 'reverse' ? '#e0a8ff' : '#a8f4e9';
+  ctx.fillRect(p.x, p.y, p.w, 2);
+  ctx.fillStyle = plane === 'reverse' ? '#8b54b5' : '#247c80';
+  ctx.fillRect(p.x, p.y + 2, p.w, 2);
+  if (p.h > 18) { ctx.fillStyle = 'rgba(3,10,16,.42)'; ctx.fillRect(p.x, p.y + 18, p.w, p.h - 18); }
+  ctx.fillStyle = plane === 'reverse' ? 'rgba(216,156,255,.36)' : 'rgba(120,226,244,.28)';
+  for (let x = p.x + 5; x < p.x + p.w - 3; x += 18) ctx.fillRect(x, p.y + 7, 2, 2);
+}
+function drawCoin(x, y) {
+  const pulse = 1 + Math.sin(game.elapsed * 5 + x * .03) * .08;
+  ctx.save(); ctx.translate(x, y); ctx.scale(pulse, 1);
+  ctx.globalAlpha = .18; ctx.fillStyle = COLORS.gold; ctx.fillRect(-9, -9, 18, 18); ctx.globalAlpha = 1;
+  ctx.fillStyle = '#8c6328'; ctx.fillRect(-4, -8, 8, 16); ctx.fillRect(-7, -5, 14, 10);
+  ctx.fillStyle = COLORS.gold; ctx.fillRect(-3, -7, 6, 14); ctx.fillRect(-6, -4, 12, 8);
+  ctx.fillStyle = '#fff3a8'; ctx.fillRect(-2, -5, 2, 5); ctx.fillRect(-4, -2, 2, 3);
+  ctx.fillStyle = '#e2a73d'; ctx.fillRect(2, 3, 3, 2);
+  ctx.restore();
+}
+function drawGate() {
+  ctx.fillStyle = 'rgba(120,226,244,.14)'; ctx.fillRect(1534, 212, 42, 60);
+  ctx.fillStyle = COLORS.cyan; ctx.fillRect(1534, 212, 3, 60); ctx.fillRect(1573, 212, 3, 60); ctx.fillRect(1534, 212, 42, 3);
+  ctx.fillStyle = COLORS.text; ctx.font = '7px monospace'; ctx.fillText('出口', 1542, 204);
+}
+function drawPlayer() {
+  const p = game.player;
+  if (game.invulnerable > 0 && Math.floor(game.invulnerable * 16) % 2 === 0) return;
+  const accent = game.plane === 'reverse' ? COLORS.reverse : COLORS.cyan;
+  const hasMoveInput = isDown('ArrowLeft', 'KeyA', 'ArrowRight', 'KeyD');
+  const moving = hasMoveInput && Math.abs(p.vx) > 8 && p.grounded;
+  const frame = moving ? Math.floor(game.elapsed * 9) % playerSprites.length : 1;
+  const sprite = playerSprites[frame];
+  const drawW = 15;
+  const drawH = 29;
+  const drawX = Math.round(p.x + p.w / 2 - drawW / 2);
+  const drawY = Math.round(p.y + p.h - drawH);
+  ctx.save();
+  if (p.facing > 0) {
+    ctx.translate(drawX * 2 + drawW, 0);
+    ctx.scale(-1, 1);
+  }
+  if (sprite.complete && sprite.naturalWidth > 0) {
+    ctx.drawImage(sprite, 39, 16, 50, 97, drawX, drawY, drawW, drawH);
+  }
+  ctx.restore();
+  ctx.fillStyle = accent;
+  ctx.globalAlpha = .22;
+  ctx.fillRect(p.x - 4, p.y + p.h + 1, p.w + 8, 2);
+  ctx.globalAlpha = 1;
+  if (game.transition.time > 0) {
+    ctx.strokeStyle = accent;
+    ctx.globalAlpha = .5 + Math.sin(game.elapsed * 30) * .25;
+    ctx.strokeRect(drawX - 3, drawY - 3, drawW + 6, drawH + 6);
+    ctx.globalAlpha = 1;
+  }
+}
+function drawParticles() {
+  for (const part of game.particles) { ctx.globalAlpha = Math.max(0, part.life / part.max); ctx.fillStyle = part.color; ctx.fillRect(part.x, part.y, part.size, part.size); }
+  ctx.globalAlpha = 1;
+}
+function drawHud() {
+  const accent = game.plane === 'reverse' ? COLORS.reverse : COLORS.cyan;
+  ctx.fillStyle = 'rgba(6,16,22,.92)'; ctx.fillRect(8, 8, 464, 48);
+  ctx.strokeStyle = game.plane === 'reverse' ? 'rgba(216,156,255,.55)' : 'rgba(120,226,244,.55)'; ctx.strokeRect(8.5, 8.5, 463, 47);
+  ctx.fillStyle = COLORS.text; ctx.font = 'bold 10px monospace'; ctx.fillText('双界回廊', 17, 23);
+  ctx.fillStyle = accent; ctx.fillText(game.plane === 'normal' ? '常态' : '反面', 86, 23);
+  ctx.fillStyle = COLORS.dim; ctx.font = '8px monospace'; ctx.fillText('Q 位面', 130, 22);
+  const cooldown = game.transition.time > 0 ? '切换中' : game.switchCooldown > 0 ? `冷却 ${game.switchCooldown.toFixed(1)}s` : '可切换';
+  ctx.fillStyle = game.switchCooldown > 0 || game.transition.time > 0 ? COLORS.dim : accent; ctx.fillText(cooldown, 130, 34);
+  ctx.fillStyle = COLORS.danger; ctx.fillText(`生命 ${'◆'.repeat(game.hp)}${'◇'.repeat(Math.max(0, game.maxHp - game.hp))}`, 17, 47);
+  ctx.fillStyle = COLORS.text; ctx.fillText(`金币 ${game.coins.size}/${level.totalCoins}`, 330, 22);
+  ctx.fillStyle = COLORS.dim; ctx.fillText(`传送 ${game.portalCooldown > 0 ? game.portalCooldown.toFixed(1) + 's' : '可用'}  ·  重开 ${game.deaths}`, 280, 47);
+  if (game.message.time > 0) {
+    const width = Math.max(120, ctx.measureText(game.message.text).width + 24);
+    ctx.fillStyle = 'rgba(9,22,29,.92)'; ctx.fillRect((W - width) / 2, 52, width, 22);
+    ctx.strokeStyle = accent; ctx.strokeRect((W - width) / 2 + .5, 52.5, width - 1, 21);
+    ctx.fillStyle = COLORS.white; ctx.font = '9px monospace'; ctx.textAlign = 'center'; ctx.fillText(game.message.text, W / 2, 67); ctx.textAlign = 'left';
+  }
+  ctx.fillStyle = 'rgba(8,16,22,.88)'; ctx.fillRect(12, 274, 456, 34);
+  ctx.fillStyle = COLORS.text; ctx.font = '8px monospace'; ctx.fillText('A/D 移动  ·  空格跳跃/二段跳  ·  Shift 冲刺  ·  Q 位面  ·  E 互动/传送  ·  J 攻击  ·  1/K 技能', 20, 288);
+  ctx.fillStyle = game.skill.active > 0 ? COLORS.gold : COLORS.dim; ctx.fillText(`技能：敏捷 ×${game.skill.agility}${game.skill.active > 0 ? `  生效 ${game.skill.active.toFixed(1)}s` : ''}`, 20, 301);
+  if (game.puzzle.progress.length > 0) { ctx.fillStyle = COLORS.cyan; ctx.fillText(`解密进度：${game.puzzle.progress.join(' → ')}${game.puzzle.solved ? '  ✓' : ''}`, 300, 301); }
+}
+function drawTitle() {
+  ctx.fillStyle = COLORS.cyan; ctx.font = 'bold 22px monospace'; ctx.textAlign = 'center'; ctx.fillText('双界回廊', W / 2, 104);
+  ctx.fillStyle = COLORS.reverse; ctx.font = '10px monospace'; ctx.fillText('T W I N   R E A L M   C O R R I D O R', W / 2, 124);
+  ctx.fillStyle = COLORS.text; ctx.font = '11px monospace'; ctx.fillText(game.levelIndex === 0 ? '第一关 · 双界回廊' : '第二关 · 复苏之径', W / 2, 164);
+  ctx.fillStyle = COLORS.dim; ctx.font = '9px monospace'; ctx.fillText('移动  A / D   跳跃  空格   切换位面  Q', W / 2, 201);
+  ctx.fillStyle = 'rgba(120,226,244,.12)'; ctx.fillRect(150, 226, 180, 30);
+  ctx.strokeStyle = COLORS.cyan; ctx.strokeRect(150.5, 226.5, 179, 29);
+  ctx.fillStyle = COLORS.white; ctx.font = 'bold 10px monospace'; ctx.fillText('按 Enter / 空格开始', W / 2, 245);
+  ctx.textAlign = 'left';
+}
+function drawClear() {
+  ctx.fillStyle = 'rgba(5,12,17,.82)'; ctx.fillRect(72, 78, 336, 166);
+  ctx.strokeStyle = COLORS.gold; ctx.strokeRect(72.5, 78.5, 335, 165);
+  ctx.fillStyle = COLORS.gold; ctx.font = 'bold 16px monospace'; ctx.textAlign = 'center'; ctx.fillText(`${game.levelIndex === 0 ? '第一关' : '第二关'} 完成`, W / 2, 117);
+  ctx.fillStyle = COLORS.text; ctx.font = '10px monospace'; ctx.fillText(game.levelIndex === 0 ? '你已通过双界桥廊' : '你已穿过复苏之径，抵达白色大教堂屋顶', W / 2, 145);
+  ctx.fillStyle = COLORS.dim; ctx.font = '9px monospace'; ctx.fillText(`收集碎片：${game.coins.size} · 位面切换：${game.stats.switched} 次`, W / 2, 168);
+  ctx.fillText('这只是第一段，后续将加入陷阱、传送门与解密', W / 2, 190);
+  ctx.fillStyle = COLORS.white; ctx.fillText('按 Enter / 空格重新体验', W / 2, 220); ctx.textAlign = 'left';
+}
+
+let previous = performance.now();
+function frame(now) {
+  const dt = Math.min(.033, (now - previous) / 1000);
+  previous = now;
+  update(dt);
+  render();
+  input.pressed.clear();
+  requestAnimationFrame(frame);
+}
+render();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
